@@ -1,5 +1,5 @@
 import type { PracticeMetric } from '../domain/types';
-import { enumerateOrderedCardPairs } from '../game/cards';
+import { enumerateCardOutcomes } from '../game/cards';
 import { enumerateCoinOutcomes } from '../game/coins';
 import { enumerateDiceOutcomes } from '../game/dice';
 import { cardBetDefinitions } from '../game/cards';
@@ -38,13 +38,11 @@ export const coinProbabilities = (): Record<string, number> =>
   );
 
 export const cardProbabilities = (): Record<string, number> => {
-  const orderedPairs = enumerateOrderedCardPairs();
+  const outcomes = enumerateCardOutcomes();
   return Object.fromEntries(
     cardBetDefinitions.map((definition) => [
       definition.id,
-      orderedPairs.filter(([first, second]) =>
-        definition.wins({ cards: [first, second, first], product: first.value * second.value, sum: 0 }),
-      ).length / orderedPairs.length,
+      exactProbability(outcomes, definition.wins),
     ]),
   );
 };

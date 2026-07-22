@@ -1,12 +1,9 @@
-import { type Dispatch, type SetStateAction, useMemo, useState } from 'react';
+import { type Dispatch, type SetStateAction, useRef, useState } from 'react';
 import { STARTING_BANKROLL } from './config/gameConfig';
 import type { RoundHistoryEntry, RoundPositions, RoundResult } from './domain/types';
-import { cardBetDefinitions } from './game/cards';
-import { coinBetDefinitions } from './game/coins';
-import { diceBetDefinitions } from './game/dice';
 import { cryptoRandomSource } from './game/random';
+import { createRoundBetDefinitions, type RoundBetDefinitions } from './game/rounds';
 import { settleRound } from './game/settlement';
-import { allPracticeMetrics } from './probability/probability';
 import { maximumRoundLoss, totalBinaryWagers } from './risk/risk';
 import { formatSignedUsd, formatUsd } from './utils/format';
 import { BettingTable } from './components/BettingTable';
@@ -15,7 +12,6 @@ import { MarketPanel } from './components/MarketPanel';
 import { OutcomePanels } from './components/OutcomePanels';
 import { ResultsTable } from './components/ResultsTable';
 import { RiskPanel } from './components/RiskPanel';
-import { StrategyHelper } from './components/StrategyHelper';
 import './styles.css';
 
 type StringMap = Record<string, string>;
@@ -23,9 +19,9 @@ type MarketInputs = { sellVolume: string; buyVolume: string };
 
 const emptyWagers = (ids: string[]): StringMap => Object.fromEntries(ids.map((id) => [id, '']));
 
-const initialDiceInputs = () => emptyWagers(diceBetDefinitions.map((definition) => definition.id));
-const initialCoinInputs = () => emptyWagers(coinBetDefinitions.map((definition) => definition.id));
-const initialCardInputs = () => emptyWagers(cardBetDefinitions.map((definition) => definition.id));
+const initialDiceInputs = (definitions: RoundBetDefinitions) => emptyWagers(definitions.dice.map((definition) => definition.id));
+const initialCoinInputs = (definitions: RoundBetDefinitions) => emptyWagers(definitions.coin.map((definition) => definition.id));
+const initialCardInputs = (definitions: RoundBetDefinitions) => emptyWagers(definitions.cards.map((definition) => definition.id));
 const initialMarketInputs = (): MarketInputs => ({ sellVolume: '', buyVolume: '' });
 
 const wagerPattern = /^(\d+)?(\.\d{0,2})?$/;
@@ -99,20 +95,19 @@ const toCsv = (history: RoundHistoryEntry[]): string => {
 };
 
 export default function App() {
-  const [mode, setMode] = useState<'assessment' | 'practice'>('assessment');
+  const [roundBets, setRoundBets] = useState(() => createRoundBetDefinitions(cryptoRandomSource));
   const [bankroll, setBankroll] = useState(STARTING_BANKROLL);
   const [cumulativePnl, setCumulativePnl] = useState(0);
   const [roundNumber, setRoundNumber] = useState(1);
-  const [diceInputs, setDiceInputs] = useState(initialDiceInputs);
-  const [coinInputs, setCoinInputs] = useState(initialCoinInputs);
-  const [cardInputs, setCardInputs] = useState(initialCardInputs);
+  const [diceInputs, setDiceInputs] = useState(() => initialDiceInputs(roundBets));
+  const [coinInputs, setCoinInputs] = useState(() => initialCoinInputs(roundBets));
+  const [cardInputs, setCardInputs] = useState(() => initialCardInputs(roundBets));
   const [marketInputs, setMarketInputs] = useState(initialMarketInputs);
   const [lastResult, setLastResult] = useState<RoundResult | undefined>();
   const [history, setHistory] = useState<RoundHistoryEntry[]>([]);
   const [formMessage, setFormMessage] = useState('');
   const [animating, setAnimating] = useState(false);
-
-  const metrics = useMemo(() => allPracticeMetrics(), []);
+  const submittedRound = useRef<number | undefined>(undefined);
   const wagerErrors = {
     ...validateWagers(diceInputs),
     ...validateWagers(coinInputs),
@@ -136,6 +131,10 @@ export default function App() {
   };
 
   const handleSubmit = () => {
+    if (submittedRound.current === roundNumber) {
+      setFormMessage('This round has already been submitted. Enter positions for the next round.');
+      return;
+    }
     if (hasValidationErrors) {
       setFormMessage('Fix the highlighted inputs before submitting.');
       return;
@@ -149,17 +148,20 @@ export default function App() {
       return;
     }
 
+    submittedRound.current = roundNumber;
     setAnimating(true);
     window.setTimeout(() => setAnimating(false), 500);
-    const result = settleRound(positions, cryptoRandomSource, roundNumber, bankroll);
+    const result = settleRound(positions, cryptoRandomSource, roundNumber, bankroll, roundBets);
+    const nextRoundBets = createRoundBetDefinitions(cryptoRandomSource);
     setLastResult(result);
     setHistory((entries) => [result, ...entries]);
     setBankroll(result.bankrollAfter);
     setCumulativePnl((value) => value + result.totalPnl);
     setRoundNumber((value) => value + 1);
-    setDiceInputs(initialDiceInputs());
-    setCoinInputs(initialCoinInputs());
-    setCardInputs(initialCardInputs());
+    setRoundBets(nextRoundBets);
+    setDiceInputs(initialDiceInputs(nextRoundBets));
+    setCoinInputs(initialCoinInputs(nextRoundBets));
+    setCardInputs(initialCardInputs(nextRoundBets));
     setMarketInputs(initialMarketInputs());
     setFormMessage(`Round ${roundNumber} settled: ${formatSignedUsd(result.totalPnl)}.`);
   };
@@ -169,12 +171,15 @@ export default function App() {
     setBankroll(STARTING_BANKROLL);
     setCumulativePnl(0);
     setRoundNumber(1);
-    setDiceInputs(initialDiceInputs());
-    setCoinInputs(initialCoinInputs());
-    setCardInputs(initialCardInputs());
+    const nextRoundBets = createRoundBetDefinitions(cryptoRandomSource);
+    setRoundBets(nextRoundBets);
+    setDiceInputs(initialDiceInputs(nextRoundBets));
+    setCoinInputs(initialCoinInputs(nextRoundBets));
+    setCardInputs(initialCardInputs(nextRoundBets));
     setMarketInputs(initialMarketInputs());
     setLastResult(undefined);
     setHistory([]);
+    submittedRound.current = undefined;
     setFormMessage('Game reset.');
   };
 
@@ -195,14 +200,6 @@ export default function App() {
           <p className="eyebrow">Trading interview practice</p>
           <h1>Risk Wager Dashboard</h1>
         </div>
-        <div className="mode-toggle" role="group" aria-label="Game mode">
-          <button type="button" className={mode === 'assessment' ? 'active' : ''} onClick={() => setMode('assessment')}>
-            Assessment Mode
-          </button>
-          <button type="button" className={mode === 'practice' ? 'active' : ''} onClick={() => setMode('practice')}>
-            Practice Mode
-          </button>
-        </div>
       </header>
 
       <section className="summary-strip" aria-label="Bankroll summary">
@@ -214,17 +211,15 @@ export default function App() {
 
       <div className="dashboard-grid">
         <OutcomePanels dice={lastResult?.dice} coins={lastResult?.coins} cards={lastResult?.cards} animating={animating} />
-        <BettingTable title="Dice Wagers" definitions={diceBetDefinitions} values={diceInputs} errors={wagerErrors} practiceMode={mode === 'practice'} metrics={metrics} onChange={(id, value) => updateInput(setDiceInputs, id, value)} />
-        <BettingTable title="Coin Wagers" definitions={coinBetDefinitions} values={coinInputs} errors={wagerErrors} practiceMode={mode === 'practice'} metrics={metrics} onChange={(id, value) => updateInput(setCoinInputs, id, value)} />
-        <BettingTable title="Card Product Wagers" definitions={cardBetDefinitions} values={cardInputs} errors={wagerErrors} practiceMode={mode === 'practice'} metrics={metrics} onChange={(id, value) => updateInput(setCardInputs, id, value)} />
+        <BettingTable title="Dice Wagers" definitions={roundBets.dice} values={diceInputs} errors={wagerErrors} onChange={(id, value) => updateInput(setDiceInputs, id, value)} />
+        <BettingTable title="Coin Flip" definitions={roundBets.coin} values={coinInputs} errors={wagerErrors} onChange={(id, value) => updateInput(setCoinInputs, id, value)} />
+        <BettingTable title="Card Draw" definitions={roundBets.cards} values={cardInputs} errors={wagerErrors} onChange={(id, value) => updateInput(setCardInputs, id, value)} />
         <MarketPanel position={marketInputs} parsedPosition={positions.market} errors={marketErrors} onChange={(field, value) => {
           setMarketInputs((current) => ({ ...current, [field]: value }));
           setFormMessage('');
         }} />
         <RiskPanel bankroll={bankroll} positions={positions} />
       </div>
-
-      {mode === 'practice' && <StrategyHelper metrics={metrics} />}
 
       <section className="submit-bar" aria-live="polite">
         <button type="button" className="primary" onClick={handleSubmit} disabled={!canSubmit}>

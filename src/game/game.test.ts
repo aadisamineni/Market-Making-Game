@@ -1,129 +1,94 @@
 import { describe, expect, it } from 'vitest';
-import { CARD_BETS } from '../config/gameConfig';
-import type { CardOutcome, PlayingCard, RoundPositions } from '../domain/types';
-import { buildDeck, cardPredicates, cardValue, createCardOutcome, drawCards } from './cards';
-import { coinPredicates } from './coins';
-import { dicePredicates } from './dice';
-import { settleMarket } from './market';
+import type { BinaryBetDefinition, CardOutcome, DiceOutcome, RoundPositions } from '../domain/types';
+import { buildDeck, cardValue, createCardOutcome, drawCards, enumerateCardOutcomes } from './cards';
+import { enumerateCoinOutcomes } from './coins';
+import { enumerateDiceOutcomes } from './dice';
+import { cardPropositions, coinPropositions, dicePropositions } from './propositions';
 import { createSequenceRandomSource } from './random';
+import { settleMarket } from './market';
 import { settleBinaryWager, settleRound } from './settlement';
-import { cardBetDefinitions } from './cards';
 
-const card = (rank: PlayingCard['rank'], suit: PlayingCard['suit']): PlayingCard => ({
-  rank,
-  suit,
-  value: cardValue(rank),
-});
-
-describe('odds settlement', () => {
-  it('settles winning profit odds without returning stake', () => {
-    const definition = { id: 'x', category: 'Dice' as const, label: 'Win', odds: 2.7, wins: () => true };
-    expect(settleBinaryWager(definition, 10, {}, 'result').pnl).toBe(27);
+describe('proposition catalogues', () => {
+  it('gives every dice proposition a winning and losing ordered d6 outcome', () => {
+    const outcomes = enumerateDiceOutcomes();
+    for (const proposition of dicePropositions) {
+      const wins = outcomes.filter(proposition.wins).length;
+      expect(wins, proposition.label).toBeGreaterThan(0);
+      expect(wins, proposition.label).toBeLessThan(outcomes.length);
+    }
   });
 
-  it('settles losing wager as negative stake', () => {
-    const definition = { id: 'x', category: 'Dice' as const, label: 'Lose', odds: 2.7, wins: () => false };
-    expect(settleBinaryWager(definition, 10, {}, 'result').pnl).toBe(-10);
-  });
-});
-
-describe('dice predicates', () => {
-  it('sum 8 qualifies for 6, 7, or 8 and Even', () => {
-    const outcome = { die1: 3, die2: 5, sum: 8 };
-    expect(dicePredicates['dice-6-7-8'](outcome)).toBe(true);
-    expect(dicePredicates['dice-even'](outcome)).toBe(true);
-    expect(dicePredicates['dice-odd'](outcome)).toBe(false);
+  it('gives every coin proposition a winning and losing three-flip outcome', () => {
+    const outcomes = enumerateCoinOutcomes();
+    for (const proposition of coinPropositions) {
+      const wins = outcomes.filter(proposition.wins).length;
+      expect(wins, proposition.label).toBeGreaterThan(0);
+      expect(wins, proposition.label).toBeLessThan(outcomes.length);
+    }
   });
 
-  it('sum 11 qualifies for 11 or 12 and Odd', () => {
-    const outcome = { die1: 5, die2: 6, sum: 11 };
-    expect(dicePredicates['dice-11-12'](outcome)).toBe(true);
-    expect(dicePredicates['dice-odd'](outcome)).toBe(true);
+  it('gives every card proposition a winning and losing physical three-card outcome', () => {
+    const outcomes = enumerateCardOutcomes();
+    for (const proposition of cardPropositions) {
+      const wins = outcomes.filter(proposition.wins).length;
+      expect(wins, proposition.label).toBeGreaterThan(0);
+      expect(wins, proposition.label).toBeLessThan(outcomes.length);
+    }
   });
 });
 
-describe('coin predicates', () => {
-  it('HHH qualifies for all-identical, more-heads, and contains-HH', () => {
-    expect(coinPredicates['coin-all-identical'](['H', 'H', 'H'])).toBe(true);
-    expect(coinPredicates['coin-more-heads'](['H', 'H', 'H'])).toBe(true);
-    expect(coinPredicates['coin-contains-hh'](['H', 'H', 'H'])).toBe(true);
-  });
-
-  it('HTH qualifies for more-heads and alternating, but not contains-HH', () => {
-    expect(coinPredicates['coin-more-heads'](['H', 'T', 'H'])).toBe(true);
-    expect(coinPredicates['coin-alternating'](['H', 'T', 'H'])).toBe(true);
-    expect(coinPredicates['coin-contains-hh'](['H', 'T', 'H'])).toBe(false);
-  });
-
-  it('THT qualifies for more-tails and alternating', () => {
-    expect(coinPredicates['coin-more-tails'](['T', 'H', 'T'])).toBe(true);
-    expect(coinPredicates['coin-alternating'](['T', 'H', 'T'])).toBe(true);
-  });
-});
-
-describe('deck and card predicates', () => {
-  it('builds a standard 52-card deck', () => {
+describe('card model and market', () => {
+  it('uses a 52-card deck, numerical ace/face values, and draws without replacement', () => {
     const deck = buildDeck();
     expect(deck).toHaveLength(52);
-    expect(new Set(deck.map((item) => `${item.rank}-${item.suit}`))).toHaveLength(52);
-  });
-
-  it('draws cards without replacement', () => {
+    expect(cardValue('A')).toBe(1);
+    expect(cardValue('J')).toBe(11);
+    expect(cardValue('Q')).toBe(12);
+    expect(cardValue('K')).toBe(13);
     const drawn = drawCards(createSequenceRandomSource(Array.from({ length: 52 }, () => 0)), 3);
-    expect(drawn).toHaveLength(3);
-    expect(new Set(drawn.map((item) => `${item.rank}-${item.suit}`))).toHaveLength(3);
+    expect(new Set(drawn.map((card) => `${card.rank}-${card.suit}`)).size).toBe(3);
   });
 
-  it('evaluates product 84 above 50 but not above 100', () => {
-    const outcome: CardOutcome = createCardOutcome([card('Q', 'spades'), card('7', 'diamonds'), card('2', 'clubs')]);
-    expect(outcome.product).toBe(84);
-    expect(cardPredicates['card-product-above-50'](outcome)).toBe(true);
-    expect(cardPredicates['card-product-above-100'](outcome)).toBe(false);
-  });
-
-  it('evaluates product 120 above 50 and above 100', () => {
-    const outcome = createCardOutcome([card('Q', 'spades'), card('10', 'diamonds'), card('2', 'clubs')]);
-    expect(outcome.product).toBe(120);
-    expect(cardPredicates['card-product-above-50'](outcome)).toBe(true);
-    expect(cardPredicates['card-product-above-100'](outcome)).toBe(true);
-  });
-
-  it('keeps all configured card bet predicates available', () => {
-    expect(CARD_BETS.every((bet) => cardBetDefinitions.some((definition) => definition.id === bet.id))).toBe(true);
-  });
-});
-
-describe('card market', () => {
-  it('buy 5 at 23 settling at 27 produces +20', () => {
+  it('keeps market P&L based only on the realized three-card sum', () => {
     expect(settleMarket({ buyVolume: 5, sellVolume: 0 }, 27).pnl).toBe(20);
-  });
-
-  it('sell 4 at 21 settling at 25 produces -16', () => {
     expect(settleMarket({ buyVolume: 0, sellVolume: 4 }, 25).pnl).toBe(-16);
+    const sameSumDifferentProducts: [CardOutcome, CardOutcome] = [
+      createCardOutcome([{ rank: '2', suit: 'spades', value: 2 }, { rank: '8', suit: 'hearts', value: 8 }, { rank: '10', suit: 'clubs', value: 10 }]),
+      createCardOutcome([{ rank: '4', suit: 'spades', value: 4 }, { rank: '4', suit: 'hearts', value: 4 }, { rank: 'Q', suit: 'clubs', value: 12 }]),
+    ];
+    expect(sameSumDifferentProducts[0].sum).toBe(sameSumDifferentProducts[1].sum);
+    expect(settleMarket({ buyVolume: 2, sellVolume: 1 }, sameSumDifferentProducts[0].sum).pnl)
+      .toBe(settleMarket({ buyVolume: 2, sellVolume: 1 }, sameSumDifferentProducts[1].sum).pnl);
   });
 });
 
-describe('complete round settlement', () => {
-  it('settles a deterministic complete round', () => {
+describe('binary and round settlement', () => {
+  const winningDefinition: BinaryBetDefinition<DiceOutcome> = {
+    id: 'winning', category: 'Dice', label: 'Winning test', odds: 2.7, wins: () => true,
+  };
+  const losingDefinition: BinaryBetDefinition<DiceOutcome> = {
+    id: 'losing', category: 'Dice', label: 'Losing test', odds: 2.7, wins: () => false,
+  };
+
+  it('uses net-profit odds and handles winning, losing, and zero-dollar wagers', () => {
+    const outcome = { die1: 1, die2: 1, sum: 2 };
+    expect(settleBinaryWager(winningDefinition, 10, outcome, '2').pnl).toBe(27);
+    expect(settleBinaryWager(losingDefinition, 10, outcome, '2').pnl).toBe(-10);
+    expect(settleBinaryWager(winningDefinition, 0, outcome, '2').pnl).toBe(0);
+  });
+
+  it('updates a round bankroll exactly once from binary and market P&L', () => {
     const positions: RoundPositions = {
-      diceWagers: { 'dice-6-7-8': 10, 'dice-even': 5 },
-      coinWagers: { 'coin-more-heads': 3, 'coin-alternating': 2, 'coin-contains-hh': 4 },
-      cardWagers: { 'card-product-above-50': 7, 'card-product-above-100': 8 },
-      market: { sellVolume: 1, buyVolume: 2 },
+      diceWagers: { winning: 10 }, coinWagers: {}, cardWagers: {}, market: { sellVolume: 0, buyVolume: 0 },
     };
-    const rng = createSequenceRandomSource([
-      2, 4,
-      0, 1, 0,
-      ...Array.from({ length: 51 }, (_value, index) => 51 - index),
-    ]);
-    const result = settleRound(positions, rng, 1, 2298);
-    expect(result.dice.sum).toBe(8);
-    expect(result.coins.join('')).toBe('HTH');
-    expect(result.cards.cards.map((item) => `${item.rank}-${item.suit}`)).toEqual(['A-spades', '2-spades', '3-spades']);
-    expect(result.cards.product).toBe(2);
-    expect(result.cards.sum).toBe(6);
-    expect(result.marketPnl).toBe(-19);
-    expect(result.totalPnl).toBeCloseTo(-8.9);
-    expect(result.bankrollAfter).toBeCloseTo(2289.1);
+    const result = settleRound(
+      positions,
+      createSequenceRandomSource([0, 0, 0, 0, 0, ...Array.from({ length: 51 }, () => 0)]),
+      1,
+      100,
+      { dice: [winningDefinition], coin: [], cards: [] },
+    );
+    expect(result.totalPnl).toBe(27);
+    expect(result.bankrollAfter).toBe(127);
   });
 });

@@ -1,5 +1,5 @@
-import { DICE_BETS } from '../config/gameConfig';
 import type { BinaryBetDefinition, DiceOutcome, RandomSource } from '../domain/types';
+import { dicePropositions } from './propositions';
 
 export const rollDice = (rng: RandomSource): DiceOutcome => {
   const die1 = rng.int(6) + 1;
@@ -7,20 +7,14 @@ export const rollDice = (rng: RandomSource): DiceOutcome => {
   return { die1, die2, sum: die1 + die2 };
 };
 
-export const dicePredicates: Record<string, (outcome: DiceOutcome) => boolean> = {
-  'dice-2-or-3': ({ sum }) => sum === 2 || sum === 3,
-  'dice-4': ({ sum }) => sum === 4,
-  'dice-10': ({ sum }) => sum === 10,
-  'dice-6-7-8': ({ sum }) => sum === 6 || sum === 7 || sum === 8,
-  'dice-11-12': ({ sum }) => sum === 11 || sum === 12,
-  'dice-even': ({ sum }) => sum % 2 === 0,
-  'dice-odd': ({ sum }) => sum % 2 === 1,
-};
+export const dicePredicates: Record<string, (outcome: DiceOutcome) => boolean> = Object.fromEntries(
+  dicePropositions.map((proposition) => [proposition.id, proposition.wins]),
+);
 
-export const diceBetDefinitions: BinaryBetDefinition<DiceOutcome>[] = DICE_BETS.map((bet) => ({
+export const diceBetDefinitions: BinaryBetDefinition<DiceOutcome>[] = dicePropositions.map((bet) => ({
   ...bet,
   category: 'Dice',
-  wins: dicePredicates[bet.id],
+  odds: 0,
 }));
 
 export const enumerateDiceOutcomes = (): DiceOutcome[] => {

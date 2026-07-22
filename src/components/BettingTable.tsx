@@ -1,13 +1,11 @@
-import type { BinaryBetDefinition, PracticeMetric } from '../domain/types';
-import { formatNumber, formatOdds, formatPercent, formatSignedUsd, formatUsd } from '../utils/format';
+import type { BinaryBetDefinition } from '../domain/types';
+import { formatOdds, formatSignedUsd } from '../utils/format';
 
 type BettingTableProps<TOutcome> = {
   title: string;
   definitions: BinaryBetDefinition<TOutcome>[];
   values: Record<string, string>;
   errors: Record<string, string>;
-  practiceMode: boolean;
-  metrics: Record<string, PracticeMetric>;
   onChange: (id: string, value: string) => void;
 };
 
@@ -16,8 +14,6 @@ export function BettingTable<TOutcome>({
   definitions,
   values,
   errors,
-  practiceMode,
-  metrics,
   onChange,
 }: BettingTableProps<TOutcome>) {
   return (
@@ -32,15 +28,13 @@ export function BettingTable<TOutcome>({
               <th scope="col">Item</th>
               <th scope="col">Odds</th>
               <th scope="col">Wager</th>
-              <th scope="col">Potential profit</th>
-              {practiceMode && <th scope="col">Practice analytics</th>}
+              <th scope="col">P&amp;L</th>
             </tr>
           </thead>
           <tbody>
             {definitions.map((definition) => {
               const rawValue = values[definition.id] ?? '';
               const wager = rawValue === '' || errors[definition.id] ? 0 : Number(rawValue);
-              const metric = metrics[definition.id];
               return (
                 <tr key={definition.id}>
                   <th scope="row">{definition.label}</th>
@@ -64,18 +58,7 @@ export function BettingTable<TOutcome>({
                       </p>
                     )}
                   </td>
-                  <td>{formatUsd(wager * definition.odds)}</td>
-                  {practiceMode && metric && (
-                    <td className="analytics-cell">
-                      <span>p {formatPercent(metric.trueProbability, 4)}</span>
-                      <span>Dec {formatNumber(metric.decimalPayout, 2)}</span>
-                      <span>BE {formatPercent(metric.breakEvenProbability)}</span>
-                      <span>{formatSignedUsd(metric.expectedProfitPerDollar)} / $1</span>
-                      <strong className={metric.evLabel === 'Positive EV' ? 'positive' : metric.evLabel === 'Negative EV' ? 'negative' : ''}>
-                        {metric.evLabel}
-                      </strong>
-                    </td>
-                  )}
+                  <td className="empty-pnl">{wager > 0 ? formatSignedUsd(0) : '—'}</td>
                 </tr>
               );
             })}

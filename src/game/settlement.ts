@@ -41,15 +41,20 @@ export const settleRound = (
   rng: RandomSource,
   roundNumber: number,
   bankrollBefore: number,
+  definitions: {
+    dice: BinaryBetDefinition<typeof diceBetDefinitions[number] extends BinaryBetDefinition<infer T> ? T : never>[];
+    coin: BinaryBetDefinition<typeof coinBetDefinitions[number] extends BinaryBetDefinition<infer T> ? T : never>[];
+    cards: BinaryBetDefinition<typeof cardBetDefinitions[number] extends BinaryBetDefinition<infer T> ? T : never>[];
+  } = { dice: diceBetDefinitions, coin: coinBetDefinitions, cards: cardBetDefinitions },
 ): RoundResult => {
   const dice = rollDice(rng);
   const coins = flipCoins(rng);
   const cards = drawCardOutcome(rng);
 
   const binarySettlements = [
-    ...activeSettlements(diceBetDefinitions, positions.diceWagers, dice, describeDice(dice)),
-    ...activeSettlements(coinBetDefinitions, positions.coinWagers, coins, describeCoins(coins)),
-    ...activeSettlements(cardBetDefinitions, positions.cardWagers, cards, describeCards(cards)),
+    ...activeSettlements(definitions.dice, positions.diceWagers, dice, describeDice(dice)),
+    ...activeSettlements(definitions.coin, positions.coinWagers, coins, describeCoins(coins)),
+    ...activeSettlements(definitions.cards, positions.cardWagers, cards, describeCards(cards)),
   ];
 
   const productResult = describeProduct(cards);

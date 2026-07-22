@@ -1,5 +1,5 @@
-import { CARD_BETS } from '../config/gameConfig';
 import type { BinaryBetDefinition, CardOutcome, PlayingCard, RandomSource, Rank, Suit } from '../domain/types';
+import { cardPropositions } from './propositions';
 
 const suits: Suit[] = ['spades', 'hearts', 'diamonds', 'clubs'];
 const ranks: Rank[] = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
@@ -40,16 +40,14 @@ export const createCardOutcome = (cards: PlayingCard[]): CardOutcome => {
 
 export const drawCardOutcome = (rng: RandomSource): CardOutcome => createCardOutcome(drawCards(rng, 3));
 
-export const cardPredicates: Record<string, (outcome: CardOutcome) => boolean> = {
-  'card-even-product': ({ product }) => product % 2 === 0,
-  'card-product-above-50': ({ product }) => product > 50,
-  'card-product-above-100': ({ product }) => product > 100,
-};
+export const cardPredicates: Record<string, (outcome: CardOutcome) => boolean> = Object.fromEntries(
+  cardPropositions.map((proposition) => [proposition.id, proposition.wins]),
+);
 
-export const cardBetDefinitions: BinaryBetDefinition<CardOutcome>[] = CARD_BETS.map((bet) => ({
+export const cardBetDefinitions: BinaryBetDefinition<CardOutcome>[] = cardPropositions.map((bet) => ({
   ...bet,
   category: 'Cards',
-  wins: cardPredicates[bet.id],
+  odds: 0,
 }));
 
 export const suitSymbol = (suit: Suit): string => {
@@ -81,4 +79,18 @@ export const enumerateOrderedCardPairs = (): [PlayingCard, PlayingCard][] => {
     }
   }
   return pairs;
+};
+
+export const enumerateCardOutcomes = (): CardOutcome[] => {
+  const deck = buildDeck();
+  const outcomes: CardOutcome[] = [];
+  for (let first = 0; first < deck.length; first += 1) {
+    for (let second = 0; second < deck.length; second += 1) {
+      if (second === first) continue;
+      for (let third = 0; third < deck.length; third += 1) {
+        if (third !== first && third !== second) outcomes.push(createCardOutcome([deck[first], deck[second], deck[third]]));
+      }
+    }
+  }
+  return outcomes;
 };
