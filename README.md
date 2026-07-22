@@ -1,4 +1,4 @@
-# Optiver-Style Betting Game
+# Betting Game
 
 A React, TypeScript, and Vite trading-interview practice game. The player allocates wagers across two dice, three coin flips, three drawn cards, and a quoted card-sum market. All positions resolve together when the round is submitted.
 
